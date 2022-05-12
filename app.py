@@ -32,11 +32,12 @@ def create_session():
 
 
 '''
+TODO: combine with /nodes , delete a list of nodes
 '''
 
 
-@app.route('/sessions/<int:session_id>/nodes/<int:node_id>', methods=['GET', 'DELETE'])
-def node(session_id, node_id):
+@app.route('/sessions/<int:session_id>/nodes/<int:node_id>', methods=['DELETE'])
+def delete_node(session_id, node_id):
     """
     :param session_id:
     :param node_id:
@@ -51,8 +52,6 @@ def node(session_id, node_id):
         response = jsonify({'delete node result': not core_response.result})
         response.status_code = 205
         return response
-    #elif request.method == 'GET':
-
 
 
 @app.route('/sessions/<int:session_id>/nodes', methods=['POST'])
@@ -61,25 +60,63 @@ def nodes(session_id):
     :param session_id:
     :return:
     """
+    node_datas = request.get_json()['nodes'] or {}
+    nodes_info = []
+    for node_data in node_datas:
+        node_type = node_types[node_data['node_type']]
+        print(node_data)
+        '''
+        if node_type == "default":
+            node_type = NodeType.DEFAULT
+        '''
+        # elif
+        x = node_data['node_position']['x']
+        y = node_data['node_position']['y']
+        node_position = Position(x=x, y=y)
+        new_node = Node(type=node_type, position=node_position)
+        core_response = core.add_node(session_id, new_node)
+        new_node_id = core_response.node_id
+        new_node_info = {'node_id': new_node_id, 'node_type': node_type}
+        nodes_info.append(new_node_info)
+    response = jsonify({'new_nodes_info': nodes_info})
+    response.status_code = 201  # 201 created
+    return response
+
+
+'''
+    TODO: add ifaces
+'''
+
+
+@app.route('/sessions/<int:session_id>/links', methods=['POST', 'DELETE'])
+def add_links(session_id):
+    """
+    :param session_id:
+    :return:
+    """
+    links_data = request.get_json()['links'] or {}
+    links_info = []
+    deleted_links_info = []
     if request.method == 'POST':
-        node_datas = request.get_json()['nodes'] or {}
-        nodes_info = []
-        for node_data in node_datas:
-            node_type = node_types[node_data['node_type']]
-            print(node_data)
-            '''
-            if node_type == "default":
-                node_type = NodeType.DEFAULT
-            '''
-            # elif
-            x = node_data['node_position']['x']
-            y = node_data['node_position']['y']
-            node_position = Position(x=x, y=y)
-            new_node = Node(type=node_type, position=node_position)
-            core_response = core.add_node(session_id, new_node)
-            new_node_id = core_response.node_id
-            new_node_info = {'node_id': new_node_id, 'node_type': node_type}
-            nodes_info.append(new_node_info)
-        response = jsonify({'new_nodes_info': nodes_info})
-        response.status_code = 201  # 201 created
+        for link_data in links_data:
+            node1_id = link_data['node1_id']
+            node2_id = link_data['node2_id']
+            core.add_link(session_id=session_id, node1_id=node1_id, node2_id=node2_id)
+            new_link_info = {'node1_id': node1_id, 'node2_id': node2_id}
+            links_info.append(new_link_info)
+        response = jsonify({'new_links_info': links_info})
+        response.status_code = 201
         return response
+    elif request.method == 'DELETE':
+        for link_data in links_data:
+            node1_id = link_data['node1_id']
+            node2_id = link_data['node2_id']
+            core.delete_link(session_id=session_id, node1_id=node1_id, node2_id=node2_id)
+            deleted_link_info = {'node1_id': node1_id, 'node2_id': node2_id}
+            deleted_links_info.append(deleted_link_info)
+        response = jsonify({'deleted_links_info':deleted_links_info})
+        response.status_code = 205
+        return response
+
+
+
