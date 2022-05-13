@@ -49,7 +49,7 @@ def delete_node(session_id, node_id):
     '''
     if request.method == 'DELETE':
         core_response = core.delete_node(session_id=session_id, node_id=node_id)
-        response = jsonify({'delete node result': not core_response.result})
+        response = jsonify({'deleted node': node_id})
         response.status_code = 205
         return response
 
@@ -88,7 +88,7 @@ def nodes(session_id):
 '''
 
 
-@app.route('/sessions/<int:session_id>/links', methods=['POST', 'DELETE'])
+@app.route('/sessions/<int:session_id>/links', methods=['POST', 'DELETE', 'PUT'])
 def add_links(session_id):
     """
     :param session_id:
@@ -117,6 +117,4 @@ def add_links(session_id):
         response = jsonify({'deleted_links_info':deleted_links_info})
         response.status_code = 205
         return response
-
-
 
