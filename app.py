@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request
 from core.api.grpc import client
-from core.api.grpc.core_pb2 import Node, NodeType, Position, SessionState,Interface
+from core.api.grpc.core_pb2 import Node, NodeType, Position, SessionState,Interface, LinkOptions
 
 app = Flask(__name__)
 core = client.CoreGrpcClient()
@@ -88,8 +88,8 @@ def nodes(session_id):
 '''
 
 
-@app.route('/sessions/<int:session_id>/links', methods=['POST', 'DELETE', 'PUT'])
-def add_links(session_id):
+@app.route('/sessions/<int:session_id>/links', methods=['POST', 'DELETE'])
+def links(session_id):
     """
     :param session_id:
     :return:
@@ -127,6 +127,23 @@ def add_links(session_id):
         return response
 
 
+@app.route('/sessions/<int:session_id>/links', methods=['PUT'])
+def edit_links(session_id):
+    links_data = request.get_json()['links'] or {}
+    edit_links_info = []
+    for link_data in links_data:
+        node1_id = link_data['node1_id']
+        node2_id = link_data['node2_id']
+        iface1 = link_data['iface1']
+        iface2 = link_data['iface2']
+        delay = link_data['delay'] or 0
+        loss = link_data['loss'] or float(0)
+        bandwidth = link_data['bandwidth'] or 0
+
+        link_option = LinkOptions(delay=delay, loss=loss, bandwidth=bandwidth)
+        core.edit_link(session_id=session_id, node1_id=node1_id, node2_id=node2_id,
+                       iface1_id=iface1, iface2_id=iface2, options=link_option)
+        return "ok"
 
 '''
 @app.route('/sessions/<int:session_id>/ifaces', methods=['POST'])
