@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request
 from core.api.grpc import client
-from core.api.grpc.core_pb2 import Node, NodeType, Position, SessionState
+from core.api.grpc.core_pb2 import Node, NodeType, Position, SessionState,Interface
 
 app = Flask(__name__)
 core = client.CoreGrpcClient()
@@ -101,7 +101,13 @@ def add_links(session_id):
         for link_data in links_data:
             node1_id = link_data['node1_id']
             node2_id = link_data['node2_id']
-            core.add_link(session_id=session_id, node1_id=node1_id, node2_id=node2_id)
+            iface1_id = link_data['iface1']
+            iface2_id = link_data['iface2']
+            iface1_address = link_data['iface1_address']
+            iface2_address = link_data['iface2_address']
+            iface1 = Interface(id=iface1_id, node_id=node1_id, ip4=iface1_address.encode('utf-8'))
+            iface2 = Interface(id=iface2_id, node_id=node2_id, ip4=iface2_address.encode('utf-8'))
+            core.add_link(session_id=session_id, node1_id=node1_id, node2_id=node2_id, iface1=iface1, iface2=iface2)
             new_link_info = {'node1_id': node1_id, 'node2_id': node2_id}
             links_info.append(new_link_info)
         response = jsonify({'new_links_info': links_info})
@@ -111,10 +117,34 @@ def add_links(session_id):
         for link_data in links_data:
             node1_id = link_data['node1_id']
             node2_id = link_data['node2_id']
-            core.delete_link(session_id=session_id, node1_id=node1_id, node2_id=node2_id)
+            iface1 = link_data['iface1']
+            iface2 = link_data['iface2']
+            core.delete_link(session_id=session_id, node1_id=node1_id, node2_id=node2_id,iface1_id=iface1,iface2_id=iface2)
             deleted_link_info = {'node1_id': node1_id, 'node2_id': node2_id}
             deleted_links_info.append(deleted_link_info)
-        response = jsonify({'deleted_links_info':deleted_links_info})
+        response = jsonify({'deleted_links_info': deleted_links_info})
         response.status_code = 205
         return response
+
+
+
+'''
+@app.route('/sessions/<int:session_id>/ifaces', methods=['POST'])
+def create_ifaces(session_id):
+    iface_datas = request.get_json()['ifaces_to_create'] or {}
+    ifaces_info = []
+    for iface_data in iface_datas:
+        ip4_prefix = iface_data['ip4']
+        ip6_prefix = iface_data['ip6']
+        iface_helper = client.InterfaceHelper(ip4_prefix=ip4_prefix,ip6_prefix=ip6_prefix)
+        for iface in iface_data['ifaces']:
+            node_id = iface['node_id']
+            iface_id = iface['iface_id']
+            iface = iface_helper.create_iface(node_id=node_id, iface_id=iface_id)
+            iface_info = {"node_id": node_id, "iface_id": iface.id, "ipv4": iface.ip4,
+                          "ip4_mask": iface.ip4_mask, "ip6": iface.ip6, "ip6_mask": iface.ip6_mask}
+            ifaces_info.append(iface_info)
+    return jsonify(ifaces_info)
+'''
+
 
