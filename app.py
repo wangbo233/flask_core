@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 from core.api.grpc import client
 from core.api.grpc.core_pb2 import Node, NodeType, Position, SessionState, Interface, LinkOptions, Geo
 import math
+from flask_cors import cross_origin
 
 EARTH_RADIUS = 6378.137
 
@@ -60,26 +61,48 @@ def delete_node(session_id, node_id):
         return response
 
 
-@app.route('/sessions/<int:session_id>/nodes', methods=['POST'])
+@app.route('/sessions/<int:session_id>/nodes', methods=['POST', 'OPTIONS'])
+@cross_origin()
 def nodes(session_id):
     """
     :param session_id:
     :return:
     """
-    node_datas = request.get_json()['nodes'] or {}
+    if request.method == 'OPTIONS':
+        response = {"status": "pass options"}
+        response = jsonify(response)
+        response.status_code = 202
+        headers = {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST'
+        }
+        response.headers = headers
+        return response
+    # node_datas = request.get_json()['nodes'] or {}
+    node_datas = request.get_json()['jsondata']['nodes']['data'] or {}
+    print(node_datas)
     nodes_info = []
     for node_data in node_datas:
-        node_type = node_types[node_data['node_type']]
-        # print(node_data)
+        # node_type = node_types[node_data['node_type']]
+        node_id = node_data['node_id']
+        node_type = node_data['node_type']
+        if node_type == 'sat' or node_type == 'ue' or node_type == 'gs':
+            node_type = NodeType.DEFAULT
         '''
         if node_type == "default":
             node_type = NodeType.DEFAULT
         '''
-        # elif
-        x = node_data['node_position']['x']
-        y = node_data['node_position']['y']
-        node_position = Position(x=x, y=y)
-        new_node = Node(type=node_type, position=node_position)
+        # lat
+        x = float(node_data['node_position']['x'])
+        # lon
+        y = float(node_data['node_position']['y'])
+        # alt
+        z = float(node_data['node_position']['z'])
+        # node_position = Position(x=x, y=y)
+        # new_node = Node(type=node_type, position=node_position)
+        geo = Geo(lat=x, lon=y, alt=z)
+        new_node = Node(id=node_id, type=node_type, geo=geo)
         core_response = core.add_node(session_id, new_node)
         new_node_id = core_response.node_id
         new_node_info = {'node_id': new_node_id, 'node_type': node_type}
@@ -94,6 +117,13 @@ def rad(d):
 
 
 def calculate_delay(session_id, node1_id, node2_id):
+    """
+
+    :param session_id:
+    :param node1_id:
+    :param node2_id:
+    :return: the delay of a wired link between two nodes(100 ms per 3000km)
+    """
     node1 = core.get_node(session_id=session_id, node_id=node1_id).node
     node2 = core.get_node(session_id=session_id, node_id=node2_id).node
     geo1 = node1.geo
@@ -177,7 +207,7 @@ def links(session_id):
             new_link_info = {'node1_id': node1_id, 'node2_id': node2_id}
             all_links.append((node1_id, node2_id))
             links_info.append(new_link_info)
-        response = jsonify({'new_links_info': links_info, 'all_links':all_links})
+        response = jsonify({'new_links_info': links_info, 'all_links': all_links})
         response.status_code = 201
         return response
     elif request.method == 'DELETE':
