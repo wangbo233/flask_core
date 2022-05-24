@@ -3,7 +3,7 @@ from core.api.grpc import client
 from core.api.grpc.core_pb2 import Node, NodeType, Position, SessionState, Interface, LinkOptions, Geo
 import math
 from flask_cors import cross_origin
-
+import time
 EARTH_RADIUS = 6378.137
 
 app = Flask(__name__)
@@ -24,7 +24,10 @@ node_types = {'default': NodeType.DEFAULT,
               'lxc': NodeType.LXC
               }
 
+# {node_id:[ip...]}
 ifaces = {}
+# {(node_id,ip):iface}
+iface_objects = {}
 all_links = []
 
 
@@ -79,13 +82,14 @@ def nodes(session_id):
         }
         response.headers = headers
         return response
-    # node_datas = request.get_json()['nodes'] or {}
-    node_datas = request.get_json()['jsondata']['nodes']['data'] or {}
-    print(node_datas)
+    #print(request.get_json())
+    node_datas = request.get_json()['jsonnodes']['nodes'] or {}
+    # node_datas = request.get_json()['jsondata']['nodes']['data'] or {}
+    #print(node_datas)
     nodes_info = []
     for node_data in node_datas:
         # node_type = node_types[node_data['node_type']]
-        node_id = node_data['node_id']
+        node_id = node_data['id']
         node_type = node_data['node_type']
         if node_type == 'sat' or node_type == 'ue' or node_type == 'gs':
             node_type = NodeType.DEFAULT
@@ -108,7 +112,7 @@ def nodes(session_id):
         new_node_info = {'node_id': new_node_id, 'node_type': node_type}
         nodes_info.append(new_node_info)
     response = jsonify({'new_nodes_info': nodes_info})
-    response.status_code = 201  # 201 created
+    response.status_code = 200
     return response
 
 
@@ -158,57 +162,94 @@ def edit_nodes(session_id):
         core.edit_node(session_id=session_id, node_id=node_id, geo=geo)
         node_info = {"node_id": node_id, "new_node_geo": [lat, lon, alt]}
         nodes_info["nodes_info"].append(node_info)
-
-    for link in all_links:
-        print(link)
-        delay = calculate_delay(session_id, link[0], link[1])
-        print(delay)
-        option = LinkOptions(delay=delay)
-        core.edit_link(session_id=session_id, node1_id=link[0], node2_id=link[1], options=option)
-        links_delay.append({str(link[0])+" to "+str(link[1]): delay})
-
-    nodes_info["links_delay(us)"] = links_delay
+        for link in all_links:
+            if link[0] == node_id or link[1] == node_id:
+                delay = calculate_delay(session_id, link[0], link[1])
+                iface1_id = link[2]
+                iface2_id = link[3]
+                print(link)
+                print(delay)
+                option = LinkOptions(delay=delay)
+                core.edit_link(session_id=session_id,
+                               node1_id=link[0],
+                               node2_id=link[1],
+                               iface1_id=iface1_id,
+                               iface2_id=iface2_id,
+                               options=option)
+                links_delay.append({str(link[0]) + " to " + str(link[1]): delay})
+    nodes_info["new_link_delays(us)"] = links_delay
     response = jsonify(nodes_info)
-    response.status_code = 205
+    response.status_code = 200
     return response
 
 
-@app.route('/sessions/<int:session_id>/links', methods=['POST', 'DELETE'])
+@app.route('/sessions/<int:session_id>/links', methods=['POST', 'DELETE', 'OPTIONS'])
+@cross_origin()
 def links(session_id):
     """
     :param session_id:
     :return:
     """
-    links_data = request.get_json()['links'] or {}
+    if request.method == 'OPTIONS':
+        response = {"status": "pass options"}
+        response = jsonify(response)
+        response.status_code = 202
+        headers = {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST'
+        }
+        response.headers = headers
+        return response
+    links_data = request.get_json()['jsonlinks']['links'] or {}
+    print(links_data)
     links_info = []
     deleted_links_info = []
     if request.method == 'POST':
+        # wait for the lst POST to complete
+        time.sleep(3)
         for link_data in links_data:
             node1_id = link_data['node1_id']
             node2_id = link_data['node2_id']
-            iface1_id = link_data['iface1']
-            iface2_id = link_data['iface2']
+            # iface1_id = link_data['iface1']
+            # iface2_id = link_data['iface2']
             iface1_address = link_data['iface1_address']
             iface2_address = link_data['iface2_address']
+            if node1_id not in ifaces.keys():
+                ifaces[node1_id] = []
+            if node2_id not in ifaces.keys():
+                ifaces[node2_id] = []
+            # check if the iface already exsits
+            if iface1_address not in ifaces[node1_id]:
+                iface1 = Interface(id=len(ifaces[node1_id]), node_id=node1_id, ip4=iface1_address.encode('utf-8'))
+                ifaces[node1_id].append(iface2_address)
+                iface_objects[(node1_id, iface1_address)] = iface1
+            if iface2_address not in ifaces[node2_id]:
+                iface2 = Interface(id=len(ifaces[node2_id]), node_id=node2_id, ip4=iface2_address.encode('utf-8'))
+                ifaces[node2_id].append(iface2_address)
+                iface_objects[(node2_id, iface2_address)] = iface2
+            '''
+            if (node1_id, iface1_address) not in ifaces:
+                iface1 = Interface(node_id=node1_id, ip4=iface1_address.encode('utf-8'))
+                ifaces[(node1_id, iface1_address)] = iface1
+            if (node2_id, iface2_address) not in ifaces:
+                iface2 = Interface(node_id=node2_id, ip4=iface2_address.encode('utf-8'))
+                ifaces[(node2_id, iface2_address)] = iface2
+            '''
 
-            # add into ifaces [] and check if the iface already exsits
-            if (node1_id, iface1_id) not in ifaces:
-                iface1 = Interface(id=iface1_id, node_id=node1_id, ip4=iface1_address.encode('utf-8'))
-                ifaces[(node1_id, iface1_id)] = iface1
-            if (node2_id, iface2_id) not in ifaces:
-                iface2 = Interface(id=iface2_id, node_id=node2_id, ip4=iface2_address.encode('utf-8'))
-                #ifaces.append((node2_id, iface2_id))
-                ifaces[(node2_id, iface2_id)] = iface2
-            print(ifaces.keys())
-            iface1 = ifaces[(node1_id, iface1_id)]
-            iface2 = ifaces[(node2_id, iface2_id)]
+            #print(ifaces)
+            iface1 = iface_objects[(node1_id, iface1_address)]
+            iface2 = iface_objects[(node2_id, iface2_address)]
+            #print((iface1.id, iface2.id))
             core.add_link(session_id=session_id, node1_id=node1_id,
                           node2_id=node2_id, iface1=iface1, iface2=iface2)
             new_link_info = {'node1_id': node1_id, 'node2_id': node2_id}
-            all_links.append((node1_id, node2_id))
+            all_links.append((node1_id, node2_id, iface1.id, iface2.id))
             links_info.append(new_link_info)
         response = jsonify({'new_links_info': links_info, 'all_links': all_links})
-        response.status_code = 201
+        response.status_code = 200
+        print(ifaces)
+        print(response)
         return response
     elif request.method == 'DELETE':
         for link_data in links_data:
@@ -233,16 +274,25 @@ def edit_links(session_id):
     for link_data in links_data:
         node1_id = link_data['node1_id']
         node2_id = link_data['node2_id']
-        iface1 = link_data['iface1']
-        iface2 = link_data['iface2']
+        iface1_address = link_data['iface1']
+        iface2_address = link_data['iface2']
+        iface1_id = iface_objects[(node1_id, iface1_address)].id
+        iface2_id = iface_objects[(node2_id, iface2_address)].id
         delay = link_data['delay'] if 'delay' in link_data else 0
         loss = link_data['loss'] if 'loss' in link_data else float(0)
         bandwidth = link_data['bandwidth'] if 'bandwidth' in link_data else float(0)
 
         link_option = LinkOptions(delay=delay, loss=loss, bandwidth=bandwidth)
         core.edit_link(session_id=session_id, node1_id=node1_id, node2_id=node2_id,
-                       iface1_id=iface1, iface2_id=iface2, options=link_option)
-        return "ok"
+                       iface1_id=iface1_id, iface2_id=iface2_id, options=link_option)
+        edit_links_info.append({"link": str(node1_id)+" to "+str(node2_id),
+                                "new_delay": delay,
+                                "new_loss": loss,
+                                "new_bandwidth": bandwidth})
+    response = jsonify(edit_links_info)
+    response.status_code = 200
+    print(response)
+    return response
 
 
 '''
